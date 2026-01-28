@@ -99,8 +99,9 @@ def normalize_lighting(img):
 def get_plant_mask(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    lower_green = np.array([35, 40, 40])
-    upper_green = np.array([85, 255, 255])
+    # Widen range for better detection (especially for Onion/glaucous plants)
+    lower_green = np.array([25, 25, 25])
+    upper_green = np.array([95, 255, 255])
 
     mask = cv2.inRange(hsv, lower_green, upper_green)
 
@@ -167,12 +168,18 @@ def image_sharpness(img):
 
 # FINAL STAGE + CONFIDENCE LOGIC
 def predict_stage(green_ratio, crop):
-    stages = CROP_THRESHOLDS.get(crop)
-
-    if not stages:
+    # Case-insensitive lookup
+    crop_stages = None
+    for key in CROP_THRESHOLDS.keys():
+        if key.lower() == crop.lower():
+            crop_stages = CROP_THRESHOLDS[key]
+            break
+            
+    if not crop_stages:
+        print(f"Crop '{crop}' not found in thresholds.")
         return "Unknown", (0, 0)
 
-    for stage, (low, high) in stages.items():
+    for stage, (low, high) in crop_stages.items():
         if low <= green_ratio < high:
             return stage, (low, high)
 
@@ -180,6 +187,7 @@ def predict_stage(green_ratio, crop):
     if green_ratio >= 1.0:
         return "Maturity", (0.75, 1.0) # Assume maturity range
 
+    print(f"Green ratio {green_ratio} did not match any stage for {crop}.")
     return "Unknown", (0, 1)
 
 @app.route("/", methods=["GET"])
@@ -211,6 +219,9 @@ def predict():
     green_ratio = calculate_green_ratio(img, mask)
 
     stage, (low, high) = predict_stage(green_ratio, crop)
+    
+    # LOGGING
+    print(f"Request: Crop={crop}, Ratio={green_ratio:.4f}, Prediction={stage}")
 
     stage_score = stage_certainty(green_ratio, low, high)
     visibility_score = plant_visibility(mask)
